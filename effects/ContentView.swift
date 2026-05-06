@@ -1,21 +1,156 @@
-//
-//  ContentView.swift
-//  effects
-//
-//  Created by Сергей Егоров on 06.05.2026.
-//
-
 import SwiftUI
 
+struct FireworksSettings: Equatable {
+    var explosionRadius: Float = 0.45
+    var particleSize: Float = 0.36
+    var particleBlur: Float = 0.08
+    var glowIntensity: Float = 15.98
+    var glowRadius: Float = 128.51
+    var fadeSpeed: Float = 0.88
+    var flightSpeed: Float = 1.45
+    var trailInstanceCount: Float = 20
+}
+
 struct ContentView: View {
+    @State private var settings = FireworksSettings()
+    @State private var isSettingsPresented = false
+
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        ZStack(alignment: .topTrailing) {
+            FireworksMetalView(settings: settings)
+                .ignoresSafeArea()
+                .background(Color.black)
+
+            Button {
+                isSettingsPresented = true
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(.black.opacity(0.35), in: Circle())
+            }
+            .accessibilityLabel("Settings")
+            .padding(.top, 12)
+            .padding(.trailing, 14)
         }
-        .padding()
+        .persistentSystemOverlays(.hidden)
+        .statusBarHidden(true)
+        .sheet(isPresented: $isSettingsPresented) {
+            SettingsSheet(settings: $settings)
+                .presentationDetents([.height(680)])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(.black.opacity(0.88))
+        }
+    }
+}
+
+private struct SettingsSheet: View {
+    @Binding var settings: FireworksSettings
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            Text("Settings")
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            SliderRow(
+                title: "Explosion radius",
+                value: Binding(
+                    get: { Double(settings.explosionRadius) },
+                    set: { settings.explosionRadius = Float($0) }
+                ),
+                range: 0.45...1.8
+            )
+
+            SliderRow(
+                title: "Particle size",
+                value: Binding(
+                    get: { Double(settings.particleSize) },
+                    set: { settings.particleSize = Float($0) }
+                ),
+                range: 0.11...1
+            )
+
+            SliderRow(
+                title: "Particle blur",
+                value: Binding(
+                    get: { Double(settings.particleBlur) },
+                    set: { settings.particleBlur = Float($0) }
+                ),
+                range: 0...1
+            )
+
+            SliderRow(
+                title: "Glow intensity",
+                value: Binding(
+                    get: { Double(settings.glowIntensity) },
+                    set: { settings.glowIntensity = Float($0) }
+                ),
+                range: 0...62.5
+            )
+
+            SliderRow(
+                title: "Glow radius",
+                value: Binding(
+                    get: { Double(settings.glowRadius) },
+                    set: { settings.glowRadius = Float($0) }
+                ),
+                range: 20...220
+            )
+
+            SliderRow(
+                title: "Fade speed",
+                value: Binding(
+                    get: { Double(settings.fadeSpeed) },
+                    set: { settings.fadeSpeed = Float($0) }
+                ),
+                range: 0.4...4
+            )
+
+            SliderRow(
+                title: "Flight speed",
+                value: Binding(
+                    get: { Double(settings.flightSpeed) },
+                    set: { settings.flightSpeed = Float($0) }
+                ),
+                range: 0.35...2
+            )
+
+            SliderRow(
+                title: "Trail instances",
+                value: Binding(
+                    get: { Double(settings.trailInstanceCount) },
+                    set: { settings.trailInstanceCount = Float($0.rounded()) }
+                ),
+                range: 6...20
+            )
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 22)
+    }
+}
+
+private struct SliderRow: View {
+    let title: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(value, format: .number.precision(.fractionLength(2)))
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.68))
+            }
+            .font(.subheadline)
+            .foregroundStyle(.white)
+
+            Slider(value: $value, in: range)
+                .tint(.white)
+        }
     }
 }
 
