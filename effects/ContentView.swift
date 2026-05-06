@@ -2,10 +2,10 @@ import SwiftUI
 
 struct FireworksSettings: Equatable {
     var explosionRadius: Float = 0.28
-    var particleSize: Float = 0.36
-    var particleBlur: Float = 0.08
-    var glowIntensity: Float = 15.98
-    var glowRadius: Float = 128.51
+    var particleSize: Float = 0.23
+    var particleBlur: Float = 0.36
+    var glowIntensity: Float = 62.5
+    var glowRadius: Float = 104.36
     var fadeSpeed: Float = 1.68
     var flightSpeed: Float = 1.81
     var gravity: Float = 0.14

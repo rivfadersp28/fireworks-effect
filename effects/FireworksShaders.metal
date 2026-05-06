@@ -300,16 +300,17 @@ fragment float4 fireworksParticleFragment(ParticleOut in [[stage_in]],
     float size = max(in.particleSize, 0.01);
     float atten = size / max(dot(q, q), particleCore(size));
     float blur = saturate(uniforms.particleBlur);
-    float blurredAtten = size / max(dot(q, q), particleCore(size) * mix(1.0, 42.0, blur));
     float coreRadiusPixels = max(in.corePixelSize * 0.5, 0.5);
-    float blurredCoreRadiusPixels = coreRadiusPixels * mix(1.0, 2.8, blur);
-    float coreDistance = pixelDistance / blurredCoreRadiusPixels;
-    float core = exp(-coreDistance * coreDistance * mix(5.0, 0.72, blur));
+    float sharpCoreRadiusPixels = coreRadiusPixels * mix(0.58, 0.78, blur);
+    float featherPixels = max(coreRadiusPixels * mix(0.16, 0.42, blur), 0.75);
+    float core = 1.0 - smoothstep(sharpCoreRadiusPixels, sharpCoreRadiusPixels + featherPixels, pixelDistance);
+    float sparkle = exp(-pow(pixelDistance / max(coreRadiusPixels * 0.36, 0.5), 2.0) * 2.2);
+    float softCore = exp(-pow(pixelDistance / max(coreRadiusPixels * mix(0.95, 1.7, blur), 0.5), 2.0) * mix(3.2, 1.15, blur));
 
     float glowDistance = pixelDistance / max(in.glowRadiusPixels, 1.0);
     float halo = exp(-glowDistance * glowDistance * 3.0) * uniforms.glowIntensity;
 
-    float3 coreColor = in.color * mix(atten, blurredAtten, blur) * core * mix(0.8, 0.42, blur);
+    float3 coreColor = in.color * atten * (core * 1.25 + sparkle * 0.65 + softCore * blur * 0.34);
     float3 glowColor = in.color * halo * 2.8;
     return float4(coreColor + glowColor, 1.0);
 }
