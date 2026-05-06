@@ -4,6 +4,7 @@ import simd
 
 struct FireworksMetalView: UIViewRepresentable {
     let settings: FireworksSettings
+    @Binding var framesPerSecond: Int
 
     func makeCoordinator() -> Renderer {
         Renderer()
@@ -21,6 +22,7 @@ struct FireworksMetalView: UIViewRepresentable {
         view.isPaused = false
 
         context.coordinator.configure(for: view)
+        context.coordinator.onFPSUpdate = { framesPerSecond = $0 }
         view.delegate = context.coordinator
 
         let tap = UITapGestureRecognizer(
@@ -34,14 +36,22 @@ struct FireworksMetalView: UIViewRepresentable {
 
     func updateUIView(_ uiView: MTKView, context: Context) {
         context.coordinator.update(settings: settings)
+        context.coordinator.onFPSUpdate = { framesPerSecond = $0 }
     }
 }
 
 final class Renderer: NSObject, MTKViewDelegate {
     private struct Firework {
-        var position: SIMD2<Float>
-        var startTime: Float
-        var seed: Float
+        var base: SIMD4<Float>
+        var fade: SIMD4<Float>
+
+        var startTime: Float {
+            base.z
+        }
+
+        var isFadingOut: Bool {
+            fade.x >= 0
+        }
     }
 
     private struct FrameUniforms {
@@ -56,21 +66,30 @@ final class Renderer: NSObject, MTKViewDelegate {
         var fadeSpeed: Float
         var flightSpeed: Float
         var trailInstanceCount: Float
+        var activeParticleCount: Float
+        var renderedTrailSegmentCount: Float
         var padding0: Float
         var padding1: Float
     }
 
     private let maxFireworks = 64
-    private let spritesPerFirework = 2_000
+    private let particlesPerFirework = 100
+    private let trailSegmentsPerParticle = 20
+    private let forcedFadeDuration: Float = 0.3
     private var device: MTLDevice?
     private var commandQueue: MTLCommandQueue?
     private var particlePipelineState: MTLRenderPipelineState?
     private var toneMapPipelineState: MTLRenderPipelineState?
     private var accumulationTexture: MTLTexture?
     private var startTime = CACurrentMediaTime()
+    private var lastFPSUpdateTime = CACurrentMediaTime()
+    private var lastFrameTime = CACurrentMediaTime()
+    private var smoothedFPS = 60.0
+    private var framesSinceFPSUpdate = 0
     private var fireworks: [Firework] = []
     private var settings = FireworksSettings()
     private weak var view: MTKView?
+    var onFPSUpdate: ((Int) -> Void)?
 
     func configure(for view: MTKView) {
         self.view = view
@@ -135,10 +154,14 @@ final class Renderer: NSObject, MTKViewDelegate {
         let now = Float(CACurrentMediaTime() - startTime)
         let seed = Float.random(in: 1...10_000)
 
-        fireworks.append(Firework(position: normalized, startTime: now, seed: seed))
-        if fireworks.count > maxFireworks {
-            fireworks.removeFirst(fireworks.count - maxFireworks)
-        }
+        fireworks.append(
+            Firework(
+                base: SIMD4<Float>(normalized.x, normalized.y, now, seed),
+                fade: SIMD4<Float>(-1, 0, 0, 0)
+            )
+        )
+        enforceStoredFireworkLimit(now: now)
+        enforceVisibleParticleBudget(now: now)
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
@@ -156,7 +179,15 @@ final class Renderer: NSObject, MTKViewDelegate {
         }
 
         let now = Float(CACurrentMediaTime() - startTime)
-        fireworks.removeAll { now - $0.startTime > 3.4 }
+        fireworks.removeAll { firework in
+            if firework.isFadingOut {
+                return now - firework.fade.x >= forcedFadeDuration
+            }
+
+            return now - firework.startTime > 3.4
+        }
+        enforceVisibleParticleBudget(now: now)
+        updateFrameRateEstimate()
 
         guard let accumulationTexture = makeAccumulationTexture(for: view) else {
             return
@@ -177,6 +208,8 @@ final class Renderer: NSObject, MTKViewDelegate {
             fadeSpeed: settings.fadeSpeed,
             flightSpeed: settings.flightSpeed,
             trailInstanceCount: settings.trailInstanceCount,
+            activeParticleCount: Float(particlesPerFirework),
+            renderedTrailSegmentCount: Float(renderedTrailSegmentCount),
             padding0: 0,
             padding1: 0
         )
@@ -198,7 +231,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                     encoder.drawPrimitives(
                         type: .point,
                         vertexStart: 0,
-                        vertexCount: fireworks.count * spritesPerFirework
+                        vertexCount: fireworks.count * particlesPerFirework * renderedTrailSegmentCount
                     )
                 }
             }
@@ -216,6 +249,69 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         commandBuffer.present(drawable)
         commandBuffer.commit()
+    }
+
+    private func updateFPS() {
+        framesSinceFPSUpdate += 1
+        let currentTime = CACurrentMediaTime()
+        let elapsed = currentTime - lastFPSUpdateTime
+        guard elapsed >= 0.2 else {
+            return
+        }
+
+        let fps = Int(smoothedFPS.rounded())
+        lastFPSUpdateTime = currentTime
+        framesSinceFPSUpdate = 0
+
+        DispatchQueue.main.async { [weak self] in
+            self?.onFPSUpdate?(fps)
+        }
+    }
+
+    private func updateFrameRateEstimate() {
+        let currentTime = CACurrentMediaTime()
+        let frameDuration = max(currentTime - lastFrameTime, 1.0 / 240.0)
+        lastFrameTime = currentTime
+
+        let instantFPS = 1.0 / frameDuration
+        smoothedFPS = smoothedFPS * 0.82 + instantFPS * 0.18
+        updateFPS()
+    }
+
+    private var renderedTrailSegmentCount: Int {
+        min(trailSegmentsPerParticle, max(1, Int(settings.trailInstanceCount.rounded())))
+    }
+
+    private func enforceStoredFireworkLimit(now: Float) {
+        guard fireworks.count > maxFireworks else {
+            return
+        }
+
+        let overflowCount = fireworks.count - maxFireworks
+        for index in fireworks.indices.prefix(overflowCount) where !fireworks[index].isFadingOut {
+            fireworks[index].fade.x = now
+        }
+    }
+
+    private func enforceVisibleParticleBudget(now: Float) {
+        let instancesPerFirework = particlesPerFirework * renderedTrailSegmentCount
+        guard instancesPerFirework > 0 else {
+            return
+        }
+
+        let maxVisibleParticleInstances = max(instancesPerFirework, Int(settings.maxVisibleParticleInstances.rounded()))
+        let maxVisibleFireworks = max(1, maxVisibleParticleInstances / instancesPerFirework)
+        let activeFireworkCount = fireworks.filter { !$0.isFadingOut }.count
+        let overflowCount = activeFireworkCount - maxVisibleFireworks
+        guard overflowCount > 0 else {
+            return
+        }
+
+        var remainingOverflow = overflowCount
+        for index in fireworks.indices where remainingOverflow > 0 && !fireworks[index].isFadingOut {
+            fireworks[index].fade.x = now
+            remainingOverflow -= 1
+        }
     }
 
     private func makeAccumulationTexture(for view: MTKView) -> MTLTexture? {

@@ -3,12 +3,10 @@ using namespace metal;
 
 constant uint particlesPerFirework = 100;
 constant uint trailSegments = 20;
-constant uint spritesPerFirework = particlesPerFirework * trailSegments;
 
 struct Firework {
-    float2 position;
-    float startTime;
-    float seed;
+    float4 base;
+    float4 fade;
 };
 
 struct FrameUniforms {
@@ -23,6 +21,8 @@ struct FrameUniforms {
     float fadeSpeed;
     float flightSpeed;
     float trailInstanceCount;
+    float activeParticleCount;
+    float renderedTrailSegmentCount;
     float padding0;
     float padding1;
 };
@@ -50,10 +50,13 @@ static float particleCore(float particleSize) {
 vertex ParticleOut fireworksParticleVertex(uint vertexID [[vertex_id]],
                                            constant FrameUniforms& uniforms [[buffer(0)]],
                                            constant Firework* fireworks [[buffer(1)]]) {
-    uint fireworkIndex = vertexID / spritesPerFirework;
-    uint spriteIndex = vertexID - fireworkIndex * spritesPerFirework;
-    uint particleIndex = spriteIndex / trailSegments;
-    uint trailIndex = spriteIndex - particleIndex * trailSegments;
+    uint activeParticles = max(uint(round(uniforms.activeParticleCount)), 1u);
+    uint renderedTrailSegments = max(uint(round(uniforms.renderedTrailSegmentCount)), 1u);
+    uint activeSpritesPerFirework = activeParticles * renderedTrailSegments;
+    uint fireworkIndex = vertexID / activeSpritesPerFirework;
+    uint spriteIndex = vertexID - fireworkIndex * activeSpritesPerFirework;
+    uint activeParticleIndex = spriteIndex / renderedTrailSegments;
+    uint trailIndex = spriteIndex - activeParticleIndex * renderedTrailSegments;
 
     ParticleOut out;
     out.position = float4(2.0, 2.0, 0.0, 1.0);
@@ -69,7 +72,12 @@ vertex ParticleOut fireworksParticleVertex(uint vertexID [[vertex_id]],
     }
 
     Firework firework = fireworks[fireworkIndex];
-    float t = uniforms.time - firework.startTime;
+    float2 fireworkPosition = firework.base.xy;
+    float startTime = firework.base.z;
+    float seed = firework.base.w;
+    float fadeOutStart = firework.fade.x;
+
+    float t = uniforms.time - startTime;
     if (t < 0.0 || t > 3.4) {
         return out;
     }
@@ -81,11 +89,6 @@ vertex ParticleOut fireworksParticleVertex(uint vertexID [[vertex_id]],
     }
 
     float motionTime = t * uniforms.flightSpeed;
-    float fallProgress = smoothstep(0.55, 1.15, motionTime);
-    if (trailIndex > 0 && fallProgress <= 0.001) {
-        return out;
-    }
-
     float trailProgress = maxTrailSegments > 1.0 ? trailAmount / (maxTrailSegments - 1.0) : 0.0;
     float trailDuration = 0.56;
     float sampleTime = motionTime - trailProgress * trailDuration;
@@ -93,11 +96,12 @@ vertex ParticleOut fireworksParticleVertex(uint vertexID [[vertex_id]],
         return out;
     }
 
-    float i = float(particleIndex);
+    float particleScale = float(particlesPerFirework) / float(activeParticles);
+    float i = floor(float(activeParticleIndex) * particleScale);
     float f = i / float(particlesPerFirework);
     float r = sqrt(1.0 - f * f);
     float th = 2.0 * 0.618033 * 3.14159 * i;
-    float hash = sin(firework.seed + i * 85412.243);
+    float hash = sin(seed + i * 85412.243);
     float weight = 1.0 - 0.2 * hash;
 
     th += hash * 3.0 * 6.28 / float(particlesPerFirework);
@@ -109,21 +113,25 @@ vertex ParticleOut fireworksParticleVertex(uint vertexID [[vertex_id]],
 
     float aspect = uniforms.resolution.x / uniforms.resolution.y;
     float2 center = float2(
-        (2.0 * firework.position.x - 1.0) * aspect,
-        2.0 * firework.position.y - 1.0
+        (2.0 * fireworkPosition.x - 1.0) * aspect,
+        2.0 * fireworkPosition.y - 1.0
     );
     float2 p = center + lpos;
 
     float tFadeout = 1.0 - smoothstep(2.65, 3.4, motionTime);
-    float3 baseCol = float3(0.5) + 0.4 * sin(float3(firework.seed) + float3(0.0, 2.1, -2.1));
+    float3 baseCol = float3(0.5) + 0.4 * sin(float3(seed) + float3(0.0, 2.1, -2.1));
 
     float intensity = 2e-4;
     intensity *= exp(-uniforms.fadeSpeed * motionTime);
     intensity *= 1.0 - 0.5 * hash;
     intensity *= 1.0 + 10.0 * exp(-20.0 * sampleTime);
     intensity *= clamp(3.0 * tFadeout, 0.0, 1.0);
+    if (fadeOutStart >= 0.0) {
+        float forcedFade = 1.0 - smoothstep(0.0, 0.3, uniforms.time - fadeOutStart);
+        intensity *= forcedFade;
+    }
 
-    float trailFade = trailIndex == 0 ? 1.0 : fallProgress * exp(-trailProgress * 2.35);
+    float trailFade = trailIndex == 0 ? 1.0 : exp(-trailProgress * 2.35);
     intensity *= trailFade;
 
     float normalizedSize = saturate((uniforms.particleSize - 0.11) / 0.89);
