@@ -9,7 +9,7 @@ struct FireworksSettings: Equatable {
     var fadeSpeed: Float = 2.0
     var flightSpeed: Float = 1.81
     var verticalMotion: Float = 0.35
-    var trailInstanceCount: Float = 20
+    var trailBrightness: Float = 1.0
     var maxVisibleParticleInstances: Float = 6_000
 }
 
@@ -142,15 +142,6 @@ private struct SettingsSheet: View {
                 )
 
                 SliderRow(
-                    title: "Trail instances",
-                    value: Binding(
-                        get: { Double(settings.trailInstanceCount) },
-                        set: { settings.trailInstanceCount = Float($0.rounded()) }
-                    ),
-                    range: 6...20
-                )
-
-                SliderRow(
                     title: "Max particles on screen",
                     value: Binding(
                         get: { Double(settings.maxVisibleParticleInstances) },
@@ -158,6 +149,15 @@ private struct SettingsSheet: View {
                     ),
                     range: 6_000...60_000,
                     fractionLength: 0
+                )
+
+                SliderRow(
+                    title: "Trail brightness",
+                    value: Binding(
+                        get: { Double(settings.trailBrightness) },
+                        set: { settings.trailBrightness = Float($0) }
+                    ),
+                    range: 1...10
                 )
             }
             .padding(.horizontal, 22)

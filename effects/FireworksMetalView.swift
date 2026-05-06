@@ -66,19 +66,20 @@ final class Renderer: NSObject, MTKViewDelegate {
         var fadeSpeed: Float
         var flightSpeed: Float
         var verticalMotion: Float
-        var trailInstanceCount: Float
+        var trailBrightness: Float
         var activeParticleCount: Float
-        var renderedTrailSegmentCount: Float
         var padding1: Float
+        var padding2: Float
     }
 
     private let maxFireworks = 64
     private let particlesPerFirework = 100
-    private let trailSegmentsPerParticle = 20
+    private let trailCurveSegments = 6
     private let forcedFadeDuration: Float = 0.3
     private var device: MTLDevice?
     private var commandQueue: MTLCommandQueue?
     private var particlePipelineState: MTLRenderPipelineState?
+    private var trailPipelineState: MTLRenderPipelineState?
     private var toneMapPipelineState: MTLRenderPipelineState?
     private var accumulationTexture: MTLTexture?
     private var startTime = CACurrentMediaTime()
@@ -106,6 +107,8 @@ final class Renderer: NSObject, MTKViewDelegate {
         guard let library = device.makeDefaultLibrary(),
               let particleVertex = library.makeFunction(name: "fireworksParticleVertex"),
               let particleFragment = library.makeFunction(name: "fireworksParticleFragment"),
+              let trailVertex = library.makeFunction(name: "fireworksTrailVertex"),
+              let trailFragment = library.makeFunction(name: "fireworksTrailFragment"),
               let toneMapVertex = library.makeFunction(name: "toneMapVertex"),
               let toneMapFragment = library.makeFunction(name: "toneMapFragment")
         else {
@@ -124,12 +127,25 @@ final class Renderer: NSObject, MTKViewDelegate {
         particleDescriptor.colorAttachments[0].destinationRGBBlendFactor = .one
         particleDescriptor.colorAttachments[0].destinationAlphaBlendFactor = .one
 
+        let trailDescriptor = MTLRenderPipelineDescriptor()
+        trailDescriptor.vertexFunction = trailVertex
+        trailDescriptor.fragmentFunction = trailFragment
+        trailDescriptor.colorAttachments[0].pixelFormat = .rgba16Float
+        trailDescriptor.colorAttachments[0].isBlendingEnabled = true
+        trailDescriptor.colorAttachments[0].rgbBlendOperation = .add
+        trailDescriptor.colorAttachments[0].alphaBlendOperation = .add
+        trailDescriptor.colorAttachments[0].sourceRGBBlendFactor = .one
+        trailDescriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
+        trailDescriptor.colorAttachments[0].destinationRGBBlendFactor = .one
+        trailDescriptor.colorAttachments[0].destinationAlphaBlendFactor = .one
+
         let toneMapDescriptor = MTLRenderPipelineDescriptor()
         toneMapDescriptor.vertexFunction = toneMapVertex
         toneMapDescriptor.fragmentFunction = toneMapFragment
         toneMapDescriptor.colorAttachments[0].pixelFormat = view.colorPixelFormat
 
         particlePipelineState = try? device.makeRenderPipelineState(descriptor: particleDescriptor)
+        trailPipelineState = try? device.makeRenderPipelineState(descriptor: trailDescriptor)
         toneMapPipelineState = try? device.makeRenderPipelineState(descriptor: toneMapDescriptor)
     }
 
@@ -164,6 +180,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         guard let drawable = view.currentDrawable,
               let commandQueue,
               let particlePipelineState,
+              let trailPipelineState,
               let toneMapPipelineState,
               let commandBuffer = commandQueue.makeCommandBuffer()
         else {
@@ -201,10 +218,10 @@ final class Renderer: NSObject, MTKViewDelegate {
             fadeSpeed: settings.fadeSpeed,
             flightSpeed: settings.flightSpeed,
             verticalMotion: settings.verticalMotion,
-            trailInstanceCount: settings.trailInstanceCount,
+            trailBrightness: settings.trailBrightness,
             activeParticleCount: Float(particlesPerFirework),
-            renderedTrailSegmentCount: Float(renderedTrailSegmentCount),
-            padding1: 0
+            padding1: 0,
+            padding2: 0
         )
 
         let particlePassDescriptor = MTLRenderPassDescriptor()
@@ -214,17 +231,24 @@ final class Renderer: NSObject, MTKViewDelegate {
         particlePassDescriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
 
         if let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: particlePassDescriptor) {
-            encoder.setRenderPipelineState(particlePipelineState)
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<FrameUniforms>.stride, index: 0)
             encoder.setFragmentBytes(&uniforms, length: MemoryLayout<FrameUniforms>.stride, index: 0)
 
             fireworks.withUnsafeBytes { bytes in
                 if let baseAddress = bytes.baseAddress, !fireworks.isEmpty {
                     encoder.setVertexBytes(baseAddress, length: bytes.count, index: 1)
+                    encoder.setRenderPipelineState(trailPipelineState)
+                    encoder.drawPrimitives(
+                        type: .triangle,
+                        vertexStart: 0,
+                        vertexCount: fireworks.count * particlesPerFirework * trailCurveSegments * 6
+                    )
+
+                    encoder.setRenderPipelineState(particlePipelineState)
                     encoder.drawPrimitives(
                         type: .point,
                         vertexStart: 0,
-                        vertexCount: fireworks.count * particlesPerFirework * renderedTrailSegmentCount
+                        vertexCount: fireworks.count * particlesPerFirework
                     )
                 }
             }
@@ -298,10 +322,6 @@ final class Renderer: NSObject, MTKViewDelegate {
         enforceVisibleParticleBudget(now: now)
     }
 
-    private var renderedTrailSegmentCount: Int {
-        min(trailSegmentsPerParticle, max(1, Int(settings.trailInstanceCount.rounded())))
-    }
-
     private func enforceStoredFireworkLimit(now: Float) {
         guard fireworks.count > maxFireworks else {
             return
@@ -314,7 +334,8 @@ final class Renderer: NSObject, MTKViewDelegate {
     }
 
     private func enforceVisibleParticleBudget(now: Float) {
-        let instancesPerFirework = particlesPerFirework * renderedTrailSegmentCount
+        let verticesPerFirework = particlesPerFirework * (1 + trailCurveSegments * 6)
+        let instancesPerFirework = verticesPerFirework
         guard instancesPerFirework > 0 else {
             return
         }
