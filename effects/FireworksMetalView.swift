@@ -65,10 +65,10 @@ final class Renderer: NSObject, MTKViewDelegate {
         var particleBlur: Float
         var fadeSpeed: Float
         var flightSpeed: Float
+        var verticalMotion: Float
         var trailInstanceCount: Float
         var activeParticleCount: Float
         var renderedTrailSegmentCount: Float
-        var padding0: Float
         var padding1: Float
     }
 
@@ -84,6 +84,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var startTime = CACurrentMediaTime()
     private var lastFPSUpdateTime = CACurrentMediaTime()
     private var lastFrameTime = CACurrentMediaTime()
+    private var lastAutomaticFireworkTime: Float = 0
     private var smoothedFPS = 60.0
     private var framesSinceFPSUpdate = 0
     private var fireworks: [Firework] = []
@@ -152,16 +153,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             Float(point.y / size.height)
         )
         let now = Float(CACurrentMediaTime() - startTime)
-        let seed = Float.random(in: 1...10_000)
-
-        fireworks.append(
-            Firework(
-                base: SIMD4<Float>(normalized.x, normalized.y, now, seed),
-                fade: SIMD4<Float>(-1, 0, 0, 0)
-            )
-        )
-        enforceStoredFireworkLimit(now: now)
-        enforceVisibleParticleBudget(now: now)
+        spawnFirework(at: normalized, now: now)
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
@@ -179,6 +171,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         }
 
         let now = Float(CACurrentMediaTime() - startTime)
+        spawnAutomaticFireworkIfNeeded(now: now)
         fireworks.removeAll { firework in
             if firework.isFadingOut {
                 return now - firework.fade.x >= forcedFadeDuration
@@ -207,10 +200,10 @@ final class Renderer: NSObject, MTKViewDelegate {
             particleBlur: settings.particleBlur,
             fadeSpeed: settings.fadeSpeed,
             flightSpeed: settings.flightSpeed,
+            verticalMotion: settings.verticalMotion,
             trailInstanceCount: settings.trailInstanceCount,
             activeParticleCount: Float(particlesPerFirework),
             renderedTrailSegmentCount: Float(renderedTrailSegmentCount),
-            padding0: 0,
             padding1: 0
         )
 
@@ -276,6 +269,33 @@ final class Renderer: NSObject, MTKViewDelegate {
         let instantFPS = 1.0 / frameDuration
         smoothedFPS = smoothedFPS * 0.82 + instantFPS * 0.18
         updateFPS()
+    }
+
+    private func spawnAutomaticFireworkIfNeeded(now: Float) {
+        guard now - lastAutomaticFireworkTime >= 1 else {
+            return
+        }
+
+        lastAutomaticFireworkTime = now
+        spawnFirework(
+            at: SIMD2<Float>(
+                Float.random(in: 0.12...0.88),
+                Float.random(in: 0.16...0.78)
+            ),
+            now: now
+        )
+    }
+
+    private func spawnFirework(at normalizedPosition: SIMD2<Float>, now: Float) {
+        let seed = Float.random(in: 1...10_000)
+        fireworks.append(
+            Firework(
+                base: SIMD4<Float>(normalizedPosition.x, normalizedPosition.y, now, seed),
+                fade: SIMD4<Float>(-1, 0, 0, 0)
+            )
+        )
+        enforceStoredFireworkLimit(now: now)
+        enforceVisibleParticleBudget(now: now)
     }
 
     private var renderedTrailSegmentCount: Int {

@@ -20,10 +20,10 @@ struct FrameUniforms {
     float particleBlur;
     float fadeSpeed;
     float flightSpeed;
+    float verticalMotion;
     float trailInstanceCount;
     float activeParticleCount;
     float renderedTrailSegmentCount;
-    float padding0;
     float padding1;
 };
 
@@ -109,7 +109,8 @@ vertex ParticleOut fireworksParticleVertex(uint vertexID [[vertex_id]],
     float2 lpos = float2(cos(th), sin(th)) * r;
     lpos.xy *= (1.0 - exp(-3.0 * sampleTime / weight)) * weight;
     lpos.xy *= uniforms.explosionRadius;
-    lpos.y -= sampleTime * 0.3 * weight - sampleTime * (1.0 - exp(-sampleTime * weight)) * 0.6 * weight;
+    float verticalDrift = sampleTime * 0.3 * weight - sampleTime * (1.0 - exp(-sampleTime * weight)) * 0.6 * weight;
+    lpos.y -= verticalDrift * uniforms.verticalMotion;
 
     float aspect = uniforms.resolution.x / uniforms.resolution.y;
     float2 center = float2(

@@ -8,8 +8,9 @@ struct FireworksSettings: Equatable {
     var glowRadius: Float = 128.51
     var fadeSpeed: Float = 2.0
     var flightSpeed: Float = 1.81
+    var verticalMotion: Float = 0.35
     var trailInstanceCount: Float = 20
-    var maxVisibleParticleInstances: Float = 7_500
+    var maxVisibleParticleInstances: Float = 6_000
 }
 
 struct ContentView: View {
@@ -129,6 +130,15 @@ private struct SettingsSheet: View {
                         set: { settings.flightSpeed = Float($0) }
                     ),
                     range: 0.35...2
+                )
+
+                SliderRow(
+                    title: "Y motion",
+                    value: Binding(
+                        get: { Double(settings.verticalMotion) },
+                        set: { settings.verticalMotion = Float($0) }
+                    ),
+                    range: 0.35...2.5
                 )
 
                 SliderRow(
