@@ -21,9 +21,14 @@ struct ContentView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
+            Color.black
+                .ignoresSafeArea()
+
             FireworksMetalView(settings: settings, framesPerSecond: $framesPerSecond)
                 .ignoresSafeArea()
-                .background(Color.black)
+
+            RewardOverlay()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 
             HStack {
                 Text("\(framesPerSecond) FPS")
@@ -57,6 +62,52 @@ struct ContentView: View {
                 .presentationDragIndicator(.visible)
                 .presentationBackground(.black.opacity(0.88))
         }
+    }
+}
+
+private struct RewardOverlay: View {
+    var body: some View {
+        ZStack {
+            VStack(spacing: 14) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("+1 500")
+                    Text("₽")
+                        .tracking(-1.2)
+                }
+                .font(.system(size: 69, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+
+                Text("Happy birthday!")
+                    .font(.system(size: 20, weight: .regular))
+                    .tracking(-0.63)
+                    .foregroundStyle(.white)
+
+                HStack(spacing: 10) {
+                    Image("AlexeyAvatar")
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 34, height: 34)
+                        .clipShape(Circle())
+
+                    Text("Alexey K.")
+                        .font(.system(size: 16, weight: .regular))
+                        .tracking(-0.25)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                }
+                .padding(.leading, 4)
+                .padding(.trailing, 15)
+                .frame(height: 40)
+                .background(.white.opacity(0.2), in: Capsule())
+                .padding(.top, 16)
+            }
+            .padding(.horizontal, 20)
+        }
+        .frame(width: 340, height: 230)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("+1 500 rubles. Happy birthday. Alexey K.")
     }
 }
 

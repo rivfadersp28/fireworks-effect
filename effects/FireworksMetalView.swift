@@ -103,6 +103,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var framesSinceFPSUpdate = 0
     private var fireworks: [Firework] = []
     private var settings = FireworksSettings()
+    private let explosionHaptic = UIImpactFeedbackGenerator(style: .light)
     private weak var view: MTKView?
     var onFPSUpdate: ((Int) -> Void)?
 
@@ -116,6 +117,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         view.device = device
         self.device = device
         commandQueue = device.makeCommandQueue()
+        explosionHaptic.prepare()
 
         guard let library = device.makeDefaultLibrary(),
               let particleVertex = library.makeFunction(name: "fireworksParticleVertex"),
@@ -359,6 +361,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     }
 
     private func spawnFirework(at normalizedPosition: SIMD2<Float>, now: Float) {
+        playExplosionHaptic()
         let seed = Float.random(in: 1...10_000)
         fireworks.append(
             Firework(
@@ -368,6 +371,18 @@ final class Renderer: NSObject, MTKViewDelegate {
         )
         enforceStoredFireworkLimit(now: now)
         enforceVisibleParticleBudget(now: now)
+    }
+
+    private func playExplosionHaptic() {
+        if Thread.isMainThread {
+            explosionHaptic.impactOccurred(intensity: 0.65)
+            explosionHaptic.prepare()
+        } else {
+            DispatchQueue.main.async { [explosionHaptic] in
+                explosionHaptic.impactOccurred(intensity: 0.65)
+                explosionHaptic.prepare()
+            }
+        }
     }
 
     private func enforceStoredFireworkLimit(now: Float) {
