@@ -51,6 +51,13 @@ struct FullscreenOut {
     float2 uv;
 };
 
+struct BloomUniforms {
+    float2 texelSize;
+    float2 direction;
+    float threshold;
+    float intensity;
+};
+
 static float particleCore(float particleSize) {
     float size = max(particleSize, 0.01);
     return mix(0.0000014, 0.00019, saturate((size - 0.11) / 0.89));
@@ -75,14 +82,28 @@ static float2 fireworkParticleOffset(float i, float sampleTime, float seed, cons
     lpos.xy *= (1.0 - exp(-3.0 * sampleTime / weight)) * weight;
     lpos.xy *= uniforms.explosionRadius;
     float verticalDrift = sampleTime * 0.3 * weight - sampleTime * (1.0 - exp(-sampleTime * weight)) * 0.6 * weight;
-    lpos.y -= verticalDrift * uniforms.gravity;
+    lpos.y += verticalDrift * uniforms.gravity;
     return lpos;
 }
 
 static float2 fireworkCenter(float2 fireworkPosition, float aspect) {
     return float2(
         (2.0 * fireworkPosition.x - 1.0) * aspect,
-        2.0 * fireworkPosition.y - 1.0
+        1.0 - 2.0 * fireworkPosition.y
+    );
+}
+
+static float2 clipToPixel(float2 clipPosition, float2 resolution) {
+    return float2(
+        (clipPosition.x * 0.5 + 0.5) * resolution.x,
+        (0.5 - clipPosition.y * 0.5) * resolution.y
+    );
+}
+
+static float2 pixelToClip(float2 pixelPosition, float2 resolution) {
+    return float2(
+        pixelPosition.x / resolution.x * 2.0 - 1.0,
+        1.0 - pixelPosition.y / resolution.y * 2.0
     );
 }
 
@@ -254,8 +275,8 @@ vertex TrailOut fireworksTrailVertex(uint vertexID [[vertex_id]],
     float2 segmentEndPosition = center + fireworkParticleOffset(i, segmentEndTime, seed, uniforms);
     float2 segmentStartClip = float2(segmentStartPosition.x / aspect, segmentStartPosition.y);
     float2 segmentEndClip = float2(segmentEndPosition.x / aspect, segmentEndPosition.y);
-    float2 segmentStartPixel = (segmentStartClip * 0.5 + 0.5) * uniforms.resolution;
-    float2 segmentEndPixel = (segmentEndClip * 0.5 + 0.5) * uniforms.resolution;
+    float2 segmentStartPixel = clipToPixel(segmentStartClip, uniforms.resolution);
+    float2 segmentEndPixel = clipToPixel(segmentEndClip, uniforms.resolution);
     float2 axis = segmentStartPixel - segmentEndPixel;
     float axisLength = length(axis);
     if (axisLength < 1.0) {
@@ -272,7 +293,7 @@ vertex TrailOut fireworksTrailVertex(uint vertexID [[vertex_id]],
     float headWidth = mix(7.0, 22.0, normalizedSize);
     float width = mix(headWidth, headWidth * 0.18, along);
     float2 pixel = mix(segmentStartPixel, segmentEndPixel, localAlong) + normal * side * width;
-    float2 clip = pixel / uniforms.resolution * 2.0 - 1.0;
+    float2 clip = pixelToClip(pixel, uniforms.resolution);
 
     float sampleTime = mix(segmentStartTime, segmentEndTime, localAlong);
     float intensity = particleIntensity(i, sampleTime, motionTime, seed, fadeOutStart, uniforms);
@@ -324,28 +345,73 @@ fragment float4 fireworksTrailFragment(TrailOut in [[stage_in]],
     return float4(color, 1.0);
 }
 
+static float luminance(float3 color) {
+    return dot(color, float3(0.2126, 0.7152, 0.0722));
+}
+
 vertex FullscreenOut toneMapVertex(uint vertexID [[vertex_id]]) {
-    float2 positions[3] = {
+    float2 positions[6] = {
         float2(-1.0, -1.0),
-        float2(3.0, -1.0),
-        float2(-1.0, 3.0)
+        float2(1.0, -1.0),
+        float2(-1.0, 1.0),
+        float2(-1.0, 1.0),
+        float2(1.0, -1.0),
+        float2(1.0, 1.0)
+    };
+    float2 uvs[6] = {
+        float2(0.0, 1.0),
+        float2(1.0, 1.0),
+        float2(0.0, 0.0),
+        float2(0.0, 0.0),
+        float2(1.0, 1.0),
+        float2(1.0, 0.0)
     };
 
-    float2 position = positions[vertexID];
-
     FullscreenOut out;
-    out.position = float4(position, 0.0, 1.0);
-    out.uv = position * 0.5 + 0.5;
+    out.position = float4(positions[vertexID], 0.0, 1.0);
+    out.uv = uvs[vertexID];
     return out;
 }
 
 fragment float4 toneMapFragment(FullscreenOut in [[stage_in]],
-                                texture2d<float> accumulation [[texture(0)]]) {
+                                texture2d<float> accumulation [[texture(0)]],
+                                texture2d<float> bloom [[texture(1)]]) {
     constexpr sampler textureSampler(mag_filter::linear, min_filter::linear, address::clamp_to_edge);
-    float3 color = accumulation.sample(textureSampler, in.uv).rgb;
+    float2 uv = saturate(in.uv);
+    float3 color = accumulation.sample(textureSampler, uv).rgb;
+    float3 bloomColor = bloom.sample(textureSampler, uv).rgb;
 
-    color = max(color, 0.0);
+    color = max(color + bloomColor * 0.82, 0.0);
     color = (color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14);
     color = sqrt(saturate(color));
     return float4(color, 1.0);
+}
+
+fragment float4 bloomExtractFragment(FullscreenOut in [[stage_in]],
+                                     texture2d<float> source [[texture(0)]],
+                                     constant BloomUniforms& uniforms [[buffer(0)]]) {
+    constexpr sampler textureSampler(mag_filter::linear, min_filter::linear, address::clamp_to_edge);
+
+    float2 uv = saturate(in.uv);
+    float3 color = source.sample(textureSampler, uv).rgb;
+    float brightness = luminance(color);
+    float knee = uniforms.threshold * 0.65;
+    float soft = smoothstep(uniforms.threshold - knee, uniforms.threshold + knee, brightness);
+    float contribution = soft * max(brightness - uniforms.threshold, 0.0) / max(brightness, 0.001);
+    return float4(color * contribution * uniforms.intensity, 1.0);
+}
+
+fragment float4 bloomBlurFragment(FullscreenOut in [[stage_in]],
+                                  texture2d<float> source [[texture(0)]],
+                                  constant BloomUniforms& uniforms [[buffer(0)]]) {
+    constexpr sampler textureSampler(mag_filter::linear, min_filter::linear, address::clamp_to_edge);
+
+    float2 uv = saturate(in.uv);
+    float2 step = uniforms.direction * uniforms.texelSize;
+    float3 color = source.sample(textureSampler, uv).rgb * 0.227027;
+    color += source.sample(textureSampler, saturate(uv + step * 1.384615)).rgb * 0.316216;
+    color += source.sample(textureSampler, saturate(uv - step * 1.384615)).rgb * 0.316216;
+    color += source.sample(textureSampler, saturate(uv + step * 3.230769)).rgb * 0.070270;
+    color += source.sample(textureSampler, saturate(uv - step * 3.230769)).rgb * 0.070270;
+    return float4(color * uniforms.intensity, 1.0);
 }

@@ -74,6 +74,13 @@ final class Renderer: NSObject, MTKViewDelegate {
         var padding3: Float
     }
 
+    private struct BloomUniforms {
+        var texelSize: SIMD2<Float>
+        var direction: SIMD2<Float>
+        var threshold: Float
+        var intensity: Float
+    }
+
     private let maxFireworks = 64
     private let particlesPerFirework = 100
     private let trailCurveSegments = 6
@@ -82,8 +89,12 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var commandQueue: MTLCommandQueue?
     private var particlePipelineState: MTLRenderPipelineState?
     private var trailPipelineState: MTLRenderPipelineState?
+    private var bloomExtractPipelineState: MTLRenderPipelineState?
+    private var bloomBlurPipelineState: MTLRenderPipelineState?
     private var toneMapPipelineState: MTLRenderPipelineState?
     private var accumulationTexture: MTLTexture?
+    private var bloomTextureA: MTLTexture?
+    private var bloomTextureB: MTLTexture?
     private var startTime = CACurrentMediaTime()
     private var lastFPSUpdateTime = CACurrentMediaTime()
     private var lastFrameTime = CACurrentMediaTime()
@@ -111,6 +122,8 @@ final class Renderer: NSObject, MTKViewDelegate {
               let particleFragment = library.makeFunction(name: "fireworksParticleFragment"),
               let trailVertex = library.makeFunction(name: "fireworksTrailVertex"),
               let trailFragment = library.makeFunction(name: "fireworksTrailFragment"),
+              let bloomExtractFragment = library.makeFunction(name: "bloomExtractFragment"),
+              let bloomBlurFragment = library.makeFunction(name: "bloomBlurFragment"),
               let toneMapVertex = library.makeFunction(name: "toneMapVertex"),
               let toneMapFragment = library.makeFunction(name: "toneMapFragment")
         else {
@@ -146,8 +159,20 @@ final class Renderer: NSObject, MTKViewDelegate {
         toneMapDescriptor.fragmentFunction = toneMapFragment
         toneMapDescriptor.colorAttachments[0].pixelFormat = view.colorPixelFormat
 
+        let bloomExtractDescriptor = MTLRenderPipelineDescriptor()
+        bloomExtractDescriptor.vertexFunction = toneMapVertex
+        bloomExtractDescriptor.fragmentFunction = bloomExtractFragment
+        bloomExtractDescriptor.colorAttachments[0].pixelFormat = .rgba16Float
+
+        let bloomBlurDescriptor = MTLRenderPipelineDescriptor()
+        bloomBlurDescriptor.vertexFunction = toneMapVertex
+        bloomBlurDescriptor.fragmentFunction = bloomBlurFragment
+        bloomBlurDescriptor.colorAttachments[0].pixelFormat = .rgba16Float
+
         particlePipelineState = try? device.makeRenderPipelineState(descriptor: particleDescriptor)
         trailPipelineState = try? device.makeRenderPipelineState(descriptor: trailDescriptor)
+        bloomExtractPipelineState = try? device.makeRenderPipelineState(descriptor: bloomExtractDescriptor)
+        bloomBlurPipelineState = try? device.makeRenderPipelineState(descriptor: bloomBlurDescriptor)
         toneMapPipelineState = try? device.makeRenderPipelineState(descriptor: toneMapDescriptor)
     }
 
@@ -176,6 +201,8 @@ final class Renderer: NSObject, MTKViewDelegate {
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         accumulationTexture = nil
+        bloomTextureA = nil
+        bloomTextureB = nil
     }
 
     func draw(in view: MTKView) {
@@ -183,6 +210,8 @@ final class Renderer: NSObject, MTKViewDelegate {
               let commandQueue,
               let particlePipelineState,
               let trailPipelineState,
+              let bloomExtractPipelineState,
+              let bloomBlurPipelineState,
               let toneMapPipelineState,
               let commandBuffer = commandQueue.makeCommandBuffer()
         else {
@@ -204,6 +233,11 @@ final class Renderer: NSObject, MTKViewDelegate {
         guard let accumulationTexture = makeAccumulationTexture(for: view) else {
             return
         }
+        guard let bloomTextures = makeBloomTextures(for: view) else {
+            return
+        }
+        let bloomTextureA = bloomTextures.0
+        let bloomTextureB = bloomTextures.1
 
         var uniforms = FrameUniforms(
             resolution: SIMD2<Float>(
@@ -260,11 +294,21 @@ final class Renderer: NSObject, MTKViewDelegate {
             encoder.endEncoding()
         }
 
+        renderBloom(
+            commandBuffer: commandBuffer,
+            sourceTexture: accumulationTexture,
+            bloomTextureA: bloomTextureA,
+            bloomTextureB: bloomTextureB,
+            extractPipelineState: bloomExtractPipelineState,
+            blurPipelineState: bloomBlurPipelineState
+        )
+
         if let renderPassDescriptor = view.currentRenderPassDescriptor,
            let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) {
             encoder.setRenderPipelineState(toneMapPipelineState)
             encoder.setFragmentTexture(accumulationTexture, index: 0)
-            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+            encoder.setFragmentTexture(bloomTextureA, index: 1)
+            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
             encoder.endEncoding()
         }
 
@@ -383,5 +427,127 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         accumulationTexture = device.makeTexture(descriptor: descriptor)
         return accumulationTexture
+    }
+
+    private func makeBloomTextures(for view: MTKView) -> (MTLTexture, MTLTexture)? {
+        guard let device else {
+            return nil
+        }
+
+        let width = max(Int(view.drawableSize.width) / 2, 1)
+        let height = max(Int(view.drawableSize.height) / 2, 1)
+        if let bloomTextureA,
+           let bloomTextureB,
+           bloomTextureA.width == width,
+           bloomTextureA.height == height,
+           bloomTextureB.width == width,
+           bloomTextureB.height == height {
+            return (bloomTextureA, bloomTextureB)
+        }
+
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba16Float,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        descriptor.usage = [.renderTarget, .shaderRead]
+        descriptor.storageMode = .private
+
+        bloomTextureA = device.makeTexture(descriptor: descriptor)
+        bloomTextureB = device.makeTexture(descriptor: descriptor)
+
+        guard let bloomTextureA, let bloomTextureB else {
+            return nil
+        }
+
+        return (bloomTextureA, bloomTextureB)
+    }
+
+    private func renderBloom(
+        commandBuffer: MTLCommandBuffer,
+        sourceTexture: MTLTexture,
+        bloomTextureA: MTLTexture,
+        bloomTextureB: MTLTexture,
+        extractPipelineState: MTLRenderPipelineState,
+        blurPipelineState: MTLRenderPipelineState
+    ) {
+        var extractUniforms = BloomUniforms(
+            texelSize: SIMD2<Float>(
+                1 / Float(sourceTexture.width),
+                1 / Float(sourceTexture.height)
+            ),
+            direction: SIMD2<Float>(0, 0),
+            threshold: 0.035,
+            intensity: 1.0
+        )
+
+        renderFullscreenPass(
+            commandBuffer: commandBuffer,
+            pipelineState: extractPipelineState,
+            outputTexture: bloomTextureA,
+            inputTexture: sourceTexture,
+            uniforms: &extractUniforms
+        )
+
+        var horizontalBlurUniforms = BloomUniforms(
+            texelSize: SIMD2<Float>(
+                1 / Float(bloomTextureA.width),
+                1 / Float(bloomTextureA.height)
+            ),
+            direction: SIMD2<Float>(1, 0),
+            threshold: 0,
+            intensity: 1.0
+        )
+
+        renderFullscreenPass(
+            commandBuffer: commandBuffer,
+            pipelineState: blurPipelineState,
+            outputTexture: bloomTextureB,
+            inputTexture: bloomTextureA,
+            uniforms: &horizontalBlurUniforms
+        )
+
+        var verticalBlurUniforms = BloomUniforms(
+            texelSize: SIMD2<Float>(
+                1 / Float(bloomTextureB.width),
+                1 / Float(bloomTextureB.height)
+            ),
+            direction: SIMD2<Float>(0, 1),
+            threshold: 0,
+            intensity: 1.35
+        )
+
+        renderFullscreenPass(
+            commandBuffer: commandBuffer,
+            pipelineState: blurPipelineState,
+            outputTexture: bloomTextureA,
+            inputTexture: bloomTextureB,
+            uniforms: &verticalBlurUniforms
+        )
+    }
+
+    private func renderFullscreenPass(
+        commandBuffer: MTLCommandBuffer,
+        pipelineState: MTLRenderPipelineState,
+        outputTexture: MTLTexture,
+        inputTexture: MTLTexture,
+        uniforms: inout BloomUniforms
+    ) {
+        let descriptor = MTLRenderPassDescriptor()
+        descriptor.colorAttachments[0].texture = outputTexture
+        descriptor.colorAttachments[0].loadAction = .clear
+        descriptor.colorAttachments[0].storeAction = .store
+        descriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+
+        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else {
+            return
+        }
+
+        encoder.setRenderPipelineState(pipelineState)
+        encoder.setFragmentTexture(inputTexture, index: 0)
+        encoder.setFragmentBytes(&uniforms, length: MemoryLayout<BloomUniforms>.stride, index: 0)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
+        encoder.endEncoding()
     }
 }
