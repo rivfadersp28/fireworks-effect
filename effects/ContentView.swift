@@ -9,8 +9,8 @@ struct FireworksSettings: Equatable {
     var fadeSpeed: Float = 2.0
     var flightSpeed: Float = 1.81
     var verticalMotion: Float = 0.35
-    var trailBrightness: Float = 1.0
-    var maxVisibleParticleInstances: Float = 6_000
+    var trailBrightness: Float = 10.0
+    var maxVisibleParticleInstances: Float = 44_000
 }
 
 struct ContentView: View {

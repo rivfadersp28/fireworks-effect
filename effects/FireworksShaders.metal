@@ -88,6 +88,37 @@ static float3 fireworkBaseColor(float seed) {
     return float3(0.5) + 0.4 * sin(float3(seed) + float3(0.0, 2.1, -2.1));
 }
 
+static float hash01(float value) {
+    return fract(sin(value) * 43758.5453123);
+}
+
+static float3 rgbToHsv(float3 c) {
+    float4 K = float4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    float4 p = mix(float4(c.bg, K.wz), float4(c.gb, K.xy), step(c.b, c.g));
+    float4 q = mix(float4(p.xyw, c.r), float4(c.r, p.yzx), step(p.x, c.r));
+    float d = q.x - min(q.w, q.y);
+    float e = 1.0e-10;
+    return float3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+static float3 hsvToRgb(float3 c) {
+    float3 p = abs(fract(c.xxx + float3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+    return c.z * mix(float3(1.0), saturate(p - 1.0), c.y);
+}
+
+static float3 fireworkParticleColor(float seed, float i) {
+    float3 baseColor = fireworkBaseColor(seed);
+    float3 hsv = rgbToHsv(baseColor);
+    float hueShift = mix(-0.105, 0.105, hash01(seed * 1.37 + i * 17.17));
+    float saturation = mix(0.9, 1.18, hash01(seed * 2.11 + i * 31.73));
+    float brightness = mix(0.9, 1.16, hash01(seed * 3.19 + i * 11.41));
+
+    hsv.x = fract(hsv.x + hueShift);
+    hsv.y = saturate(hsv.y * saturation);
+    hsv.z = max(hsv.z * brightness, 0.0);
+    return hsvToRgb(hsv);
+}
+
 static float particleIntensity(float i,
                                float sampleTime,
                                float motionTime,
@@ -162,7 +193,7 @@ vertex ParticleOut fireworksParticleVertex(uint vertexID [[vertex_id]],
 
     out.position = float4(p.x / aspect, p.y, 0.0, 1.0);
     out.pointSize = pointSize;
-    out.color = fireworkBaseColor(seed) * particleIntensity(i, sampleTime, motionTime, seed, fadeOutStart, uniforms);
+    out.color = fireworkParticleColor(seed, i) * particleIntensity(i, sampleTime, motionTime, seed, fadeOutStart, uniforms);
     out.particleSize = uniforms.particleSize;
     out.corePixelSize = corePixelSize;
     out.glowRadiusPixels = glowRadiusPixels;
@@ -243,7 +274,7 @@ vertex TrailOut fireworksTrailVertex(uint vertexID [[vertex_id]],
 
     float sampleTime = mix(segmentStartTime, segmentEndTime, localAlong);
     float intensity = particleIntensity(i, sampleTime, motionTime, seed, fadeOutStart, uniforms);
-    float3 color = fireworkBaseColor(seed) * intensity * mix(0.68, 0.0, smoothstep(0.0, 1.0, along));
+    float3 color = fireworkParticleColor(seed, i) * intensity * mix(0.68, 0.0, smoothstep(0.0, 1.0, along));
 
     out.position = float4(clip, 0.0, 1.0);
     out.color = color;
