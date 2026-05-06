@@ -20,11 +20,13 @@ struct FrameUniforms {
     float particleBlur;
     float fadeSpeed;
     float flightSpeed;
-    float verticalMotion;
+    float gravity;
     float trailBrightness;
+    float trailLength;
     float activeParticleCount;
     float padding1;
     float padding2;
+    float padding3;
 };
 
 struct ParticleOut {
@@ -73,7 +75,7 @@ static float2 fireworkParticleOffset(float i, float sampleTime, float seed, cons
     lpos.xy *= (1.0 - exp(-3.0 * sampleTime / weight)) * weight;
     lpos.xy *= uniforms.explosionRadius;
     float verticalDrift = sampleTime * 0.3 * weight - sampleTime * (1.0 - exp(-sampleTime * weight)) * 0.6 * weight;
-    lpos.y -= verticalDrift * uniforms.verticalMotion;
+    lpos.y -= verticalDrift * uniforms.gravity;
     return lpos;
 }
 
@@ -235,7 +237,7 @@ vertex TrailOut fireworksTrailVertex(uint vertexID [[vertex_id]],
     }
 
     float motionTime = t * uniforms.flightSpeed;
-    float trailLength = 0.68;
+    float trailLength = max(uniforms.trailLength, 0.01);
     float availableTrail = min(trailLength, motionTime);
     if (motionTime <= 0.01 || availableTrail <= 0.005) {
         return out;

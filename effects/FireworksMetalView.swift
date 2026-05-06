@@ -65,11 +65,13 @@ final class Renderer: NSObject, MTKViewDelegate {
         var particleBlur: Float
         var fadeSpeed: Float
         var flightSpeed: Float
-        var verticalMotion: Float
+        var gravity: Float
         var trailBrightness: Float
+        var trailLength: Float
         var activeParticleCount: Float
         var padding1: Float
         var padding2: Float
+        var padding3: Float
     }
 
     private let maxFireworks = 64
@@ -217,11 +219,13 @@ final class Renderer: NSObject, MTKViewDelegate {
             particleBlur: settings.particleBlur,
             fadeSpeed: settings.fadeSpeed,
             flightSpeed: settings.flightSpeed,
-            verticalMotion: settings.verticalMotion,
+            gravity: settings.gravity,
             trailBrightness: settings.trailBrightness,
+            trailLength: settings.trailLength,
             activeParticleCount: Float(particlesPerFirework),
             padding1: 0,
-            padding2: 0
+            padding2: 0,
+            padding3: 0
         )
 
         let particlePassDescriptor = MTLRenderPassDescriptor()

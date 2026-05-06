@@ -6,10 +6,11 @@ struct FireworksSettings: Equatable {
     var particleBlur: Float = 0.08
     var glowIntensity: Float = 15.98
     var glowRadius: Float = 128.51
-    var fadeSpeed: Float = 2.0
+    var fadeSpeed: Float = 1.68
     var flightSpeed: Float = 1.81
-    var verticalMotion: Float = 0.35
+    var gravity: Float = 0.14
     var trailBrightness: Float = 10.0
+    var trailLength: Float = 1.4
     var maxVisibleParticleInstances: Float = 44_000
 }
 
@@ -133,12 +134,12 @@ private struct SettingsSheet: View {
                 )
 
                 SliderRow(
-                    title: "Y motion",
+                    title: "Gravity",
                     value: Binding(
-                        get: { Double(settings.verticalMotion) },
-                        set: { settings.verticalMotion = Float($0) }
+                        get: { Double(settings.gravity) },
+                        set: { settings.gravity = Float($0) }
                     ),
-                    range: 0.35...2.5
+                    range: 0.05...1.4
                 )
 
                 SliderRow(
@@ -158,6 +159,15 @@ private struct SettingsSheet: View {
                         set: { settings.trailBrightness = Float($0) }
                     ),
                     range: 1...10
+                )
+
+                SliderRow(
+                    title: "Trail length",
+                    value: Binding(
+                        get: { Double(settings.trailLength) },
+                        set: { settings.trailLength = Float($0) }
+                    ),
+                    range: 0.15...1.4
                 )
             }
             .padding(.horizontal, 22)
