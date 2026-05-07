@@ -17,6 +17,7 @@ struct FireworksSettings: Equatable {
 enum EffectKind: String, CaseIterable, Identifiable {
     case fireworks
     case ripple
+    case bravo
 
     var id: String {
         rawValue
@@ -28,6 +29,8 @@ enum EffectKind: String, CaseIterable, Identifiable {
             "Fireworks"
         case .ripple:
             "Ripple"
+        case .bravo:
+            "Bravo"
         }
     }
 }
@@ -64,6 +67,9 @@ struct ContentView: View {
                     .ignoresSafeArea()
             case .ripple:
                 RippleMetalView(settings: rippleSettings, framesPerSecond: $framesPerSecond)
+                    .ignoresSafeArea()
+            case .bravo:
+                BravoVideoView(framesPerSecond: $framesPerSecond)
                     .ignoresSafeArea()
             }
 
@@ -179,6 +185,8 @@ private struct SettingsSheet: View {
                     fireworksControls
                 case .ripple:
                     rippleControls
+                case .bravo:
+                    EmptyView()
                 }
             }
             .padding(.horizontal, 22)
