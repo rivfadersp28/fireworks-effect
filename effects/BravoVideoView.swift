@@ -1,11 +1,12 @@
 import AVFoundation
 import SwiftUI
 
-struct BravoVideoView: UIViewRepresentable {
+struct LoopingVideoView: UIViewRepresentable {
+    let resourceName: String
     @Binding var framesPerSecond: Int
 
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(resourceName: resourceName)
     }
 
     func makeUIView(context: Context) -> PlayerContainerView {
@@ -37,8 +38,13 @@ final class PlayerContainerView: UIView {
 }
 
 final class Coordinator {
+    private let resourceName: String
     private var player: AVPlayer?
     private var playerItem: AVPlayerItem?
+
+    init(resourceName: String) {
+        self.resourceName = resourceName
+    }
 
     deinit {
         if let playerItem {
@@ -52,7 +58,7 @@ final class Coordinator {
 
     func configure(playerLayer: AVPlayerLayer) {
         guard player == nil,
-              let url = Bundle.main.url(forResource: "bravo", withExtension: "mp4")
+              let url = Bundle.main.url(forResource: resourceName, withExtension: "mp4")
         else {
             return
         }
