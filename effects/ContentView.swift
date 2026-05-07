@@ -19,6 +19,7 @@ enum EffectKind: String, CaseIterable, Identifiable {
     case ripple
     case bravo
     case dog
+    case baloons
 
     var id: String {
         rawValue
@@ -34,6 +35,8 @@ enum EffectKind: String, CaseIterable, Identifiable {
             "Bravo"
         case .dog:
             "Dog"
+        case .baloons:
+            "Baloons"
         }
     }
 }
@@ -80,6 +83,13 @@ struct ContentView: View {
                     resourceName: "dog",
                     framesPerSecond: $framesPerSecond,
                     onLuminanceUpdate: updateDogTextContrast
+                )
+                    .ignoresSafeArea()
+            case .baloons:
+                LoopingVideoView(
+                    resourceName: "baloons",
+                    framesPerSecond: $framesPerSecond,
+                    endBehavior: .pauseAtEnd
                 )
                     .ignoresSafeArea()
             }
@@ -214,7 +224,7 @@ private struct SettingsSheet: View {
                     fireworksControls
                 case .ripple:
                     rippleControls
-                case .bravo, .dog:
+                case .bravo, .dog, .baloons:
                     EmptyView()
                 }
             }

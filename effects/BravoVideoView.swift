@@ -2,13 +2,23 @@ import AVFoundation
 import CoreVideo
 import SwiftUI
 
+enum VideoEndBehavior {
+    case loop
+    case pauseAtEnd
+}
+
 struct LoopingVideoView: UIViewRepresentable {
     let resourceName: String
     @Binding var framesPerSecond: Int
+    var endBehavior = VideoEndBehavior.loop
     var onLuminanceUpdate: ((Double) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(resourceName: resourceName, onLuminanceUpdate: onLuminanceUpdate)
+        Coordinator(
+            resourceName: resourceName,
+            endBehavior: endBehavior,
+            onLuminanceUpdate: onLuminanceUpdate
+        )
     }
 
     func makeUIView(context: Context) -> PlayerContainerView {
@@ -42,6 +52,7 @@ final class PlayerContainerView: UIView {
 
 final class Coordinator: NSObject {
     private let resourceName: String
+    private let endBehavior: VideoEndBehavior
     private var player: AVPlayer?
     private var playerItem: AVPlayerItem?
     private var videoOutput: AVPlayerItemVideoOutput?
@@ -49,8 +60,9 @@ final class Coordinator: NSObject {
     private var lastLuminanceSampleTime = CACurrentMediaTime()
     var onLuminanceUpdate: ((Double) -> Void)?
 
-    init(resourceName: String, onLuminanceUpdate: ((Double) -> Void)?) {
+    init(resourceName: String, endBehavior: VideoEndBehavior, onLuminanceUpdate: ((Double) -> Void)?) {
         self.resourceName = resourceName
+        self.endBehavior = endBehavior
         self.onLuminanceUpdate = onLuminanceUpdate
         super.init()
     }
@@ -80,12 +92,12 @@ final class Coordinator: NSObject {
         item.add(output)
 
         let player = AVPlayer(playerItem: item)
-        player.actionAtItemEnd = .none
+        player.actionAtItemEnd = endBehavior == .loop ? .none : .pause
         player.isMuted = true
 
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(loopVideo),
+            selector: #selector(handleVideoEnd),
             name: .AVPlayerItemDidPlayToEndTime,
             object: item
         )
@@ -98,9 +110,14 @@ final class Coordinator: NSObject {
         player.play()
     }
 
-    @objc private func loopVideo() {
-        player?.seek(to: .zero)
-        player?.play()
+    @objc private func handleVideoEnd() {
+        switch endBehavior {
+        case .loop:
+            player?.seek(to: .zero)
+            player?.play()
+        case .pauseAtEnd:
+            player?.pause()
+        }
     }
 
     private func startLuminanceSamplingIfNeeded() {
