@@ -63,6 +63,10 @@ final class RippleRenderer: NSObject, MTKViewDelegate {
         var waveSoftness: Float
         var fadeSpeed: Float
         var waveSpacing: Float
+        var glowIntensity: Float
+        var glowBrightness: Float
+        var padding1: Float
+        var padding2: Float
     }
 
     private let maxRipples = 16
@@ -188,7 +192,11 @@ final class RippleRenderer: NSObject, MTKViewDelegate {
             waveCount: settings.waveCount,
             waveSoftness: settings.waveSoftness,
             fadeSpeed: settings.fadeSpeed,
-            waveSpacing: settings.waveSpacing
+            waveSpacing: settings.waveSpacing,
+            glowIntensity: settings.glowIntensity,
+            glowBrightness: settings.glowBrightness,
+            padding1: 0,
+            padding2: 0
         )
 
         var rippleBuffer = [Ripple](

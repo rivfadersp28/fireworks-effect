@@ -34,14 +34,16 @@ enum EffectKind: String, CaseIterable, Identifiable {
 
 struct RippleSettings: Equatable {
     var strength: Float = 0.03
-    var radius: Float = 0.46
+    var radius: Float = 0.66
     var speed: Float = 2.17
     var damping: Float = 1.08
     var refraction: Float = 0.78
     var waveCount: Float = 2
     var waveSoftness: Float = 1.0
-    var fadeSpeed: Float = 1.0
+    var fadeSpeed: Float = 1.67
     var waveSpacing: Float = 0.35
+    var glowIntensity: Float = 0.93
+    var glowBrightness: Float = 0.06
 }
 
 struct ContentView: View {
@@ -136,13 +138,13 @@ private struct RewardOverlay: View {
                     Text("Alexey K.")
                         .font(.system(size: 16, weight: .regular))
                         .tracking(-0.25)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
                 }
                 .padding(.leading, 4)
                 .padding(.trailing, 15)
                 .frame(height: 40)
-                .background(.white.opacity(0.2), in: Capsule())
+                .glassEffect(.regular.tint(.white.opacity(0.16)), in: Capsule())
                 .padding(.top, 16)
             }
             .padding(.horizontal, 20)
@@ -344,6 +346,24 @@ private struct SettingsSheet: View {
                     set: { rippleSettings.waveSpacing = Float($0) }
                 ),
                 range: 0.35...2
+            )
+
+            SliderRow(
+                title: "Edge glow",
+                value: Binding(
+                    get: { Double(rippleSettings.glowIntensity) },
+                    set: { rippleSettings.glowIntensity = Float($0) }
+                ),
+                range: 0...1.5
+            )
+
+            SliderRow(
+                title: "Glow brightness",
+                value: Binding(
+                    get: { Double(rippleSettings.glowBrightness) },
+                    set: { rippleSettings.glowBrightness = Float($0) }
+                ),
+                range: 0...3
             )
 
             SliderRow(

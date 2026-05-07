@@ -20,6 +20,10 @@ struct RippleUniforms {
     float waveSoftness;
     float fadeSpeed;
     float waveSpacing;
+    float glowIntensity;
+    float glowBrightness;
+    float padding1;
+    float padding2;
 };
 
 struct Ripple {
@@ -75,10 +79,15 @@ static float2 aspectFillVideoUV(float2 screenUV, float2 resolution, float2 video
     return uv;
 }
 
-static float2 rippleOffset(float2 uv, constant RippleUniforms& uniforms, constant Ripple* ripples, thread float& rippleAmount) {
+static float2 rippleOffset(float2 uv,
+                           constant RippleUniforms& uniforms,
+                           constant Ripple* ripples,
+                           thread float& rippleAmount,
+                           thread float& edgeGlow) {
     float aspect = uniforms.resolution.x / max(uniforms.resolution.y, 1.0);
     float2 offset = float2(0.0);
     rippleAmount = 0.0;
+    edgeGlow = 0.0;
 
     for (uint index = 0; index < uniforms.rippleCount; index++) {
         Ripple ripple = ripples[index];
@@ -127,8 +136,11 @@ static float2 rippleOffset(float2 uv, constant RippleUniforms& uniforms, constan
 
             float ringDistance = abs(distance - ringRadius);
             float ring = exp(-pow(ringDistance / max(width, 0.001), 2.0));
+            float rimWidth = max(width * 0.42, 0.001);
+            float rim = exp(-pow(ringDistance / rimWidth, 2.0));
             float fadeBack = mix(1.0, 0.52, float(waveIndex) / max(waveCount - 1.0, 1.0));
             rippleValue += ring * fadeBack;
+            edgeGlow += rim * fadeBack * life * spatialFade;
         }
 
         rippleValue = saturate(rippleValue) * life * spatialFade * strength * seed;
@@ -147,14 +159,17 @@ fragment float4 rippleFragment(RippleFullscreenOut in [[stage_in]],
 
     float2 screenUV = saturate(in.uv);
     float rippleAmount = 0.0;
-    float2 distortion = rippleOffset(screenUV, uniforms, ripples, rippleAmount);
+    float edgeGlow = 0.0;
+    float2 distortion = rippleOffset(screenUV, uniforms, ripples, rippleAmount, edgeGlow);
     float2 distortedScreenUV = saturate(screenUV + distortion);
     float2 videoUV = aspectFillVideoUV(distortedScreenUV, uniforms.resolution, uniforms.videoSize);
     float3 color = degamma(videoTexture.sample(videoSampler, videoUV).rgb);
 
     float shimmer = saturate(rippleAmount * 4.0);
+    float glow = pow(saturate(edgeGlow), 1.8) * uniforms.glowIntensity * uniforms.glowBrightness;
     color *= mix(1.0, 1.08, shimmer);
     color += shimmer * 0.035;
+    color += glow * float3(1.0, 0.86, 0.64);
     color = gamma(max(color, 0.0));
 
     return float4(color, 1.0);
