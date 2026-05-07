@@ -14,8 +14,40 @@ struct FireworksSettings: Equatable {
     var maxVisibleParticleInstances: Float = 44_000
 }
 
+enum EffectKind: String, CaseIterable, Identifiable {
+    case fireworks
+    case ripple
+
+    var id: String {
+        rawValue
+    }
+
+    var title: String {
+        switch self {
+        case .fireworks:
+            "Fireworks"
+        case .ripple:
+            "Ripple"
+        }
+    }
+}
+
+struct RippleSettings: Equatable {
+    var strength: Float = 0.03
+    var radius: Float = 0.46
+    var speed: Float = 2.17
+    var damping: Float = 1.08
+    var refraction: Float = 0.78
+    var waveCount: Float = 2
+    var waveSoftness: Float = 1.0
+    var fadeSpeed: Float = 1.0
+    var waveSpacing: Float = 0.35
+}
+
 struct ContentView: View {
     @State private var settings = FireworksSettings()
+    @State private var rippleSettings = RippleSettings()
+    @State private var selectedEffect = EffectKind.fireworks
     @State private var isSettingsPresented = false
     @State private var framesPerSecond = 0
 
@@ -24,8 +56,14 @@ struct ContentView: View {
             Color.black
                 .ignoresSafeArea()
 
-            FireworksMetalView(settings: settings, framesPerSecond: $framesPerSecond)
-                .ignoresSafeArea()
+            switch selectedEffect {
+            case .fireworks:
+                FireworksMetalView(settings: settings, framesPerSecond: $framesPerSecond)
+                    .ignoresSafeArea()
+            case .ripple:
+                RippleMetalView(settings: rippleSettings, framesPerSecond: $framesPerSecond)
+                    .ignoresSafeArea()
+            }
 
             RewardOverlay()
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -57,7 +95,11 @@ struct ContentView: View {
         .persistentSystemOverlays(.hidden)
         .statusBarHidden(true)
         .sheet(isPresented: $isSettingsPresented) {
-            SettingsSheet(settings: $settings)
+            SettingsSheet(
+                selectedEffect: $selectedEffect,
+                fireworksSettings: $settings,
+                rippleSettings: $rippleSettings
+            )
                 .presentationDetents([.height(680)])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(.black.opacity(0.88))
@@ -112,7 +154,9 @@ private struct RewardOverlay: View {
 }
 
 private struct SettingsSheet: View {
-    @Binding var settings: FireworksSettings
+    @Binding var selectedEffect: EffectKind
+    @Binding var fireworksSettings: FireworksSettings
+    @Binding var rippleSettings: RippleSettings
 
     var body: some View {
         ScrollView {
@@ -121,111 +165,216 @@ private struct SettingsSheet: View {
                     .font(.headline)
                     .foregroundStyle(.white)
 
-                SliderRow(
-                    title: "Explosion radius",
-                    value: Binding(
-                        get: { Double(settings.explosionRadius) },
-                        set: { settings.explosionRadius = Float($0) }
-                    ),
-                    range: 0.1...1.8
-                )
+                Picker("Effect", selection: $selectedEffect) {
+                    ForEach(EffectKind.allCases) { effect in
+                        Text(effect.title).tag(effect)
+                    }
+                }
+                .pickerStyle(.segmented)
 
-                SliderRow(
-                    title: "Particle size",
-                    value: Binding(
-                        get: { Double(settings.particleSize) },
-                        set: { settings.particleSize = Float($0) }
-                    ),
-                    range: 0.11...1
-                )
-
-                SliderRow(
-                    title: "Particle blur",
-                    value: Binding(
-                        get: { Double(settings.particleBlur) },
-                        set: { settings.particleBlur = Float($0) }
-                    ),
-                    range: 0...1
-                )
-
-                SliderRow(
-                    title: "Glow intensity",
-                    value: Binding(
-                        get: { Double(settings.glowIntensity) },
-                        set: { settings.glowIntensity = Float($0) }
-                    ),
-                    range: 0...62.5
-                )
-
-                SliderRow(
-                    title: "Glow radius",
-                    value: Binding(
-                        get: { Double(settings.glowRadius) },
-                        set: { settings.glowRadius = Float($0) }
-                    ),
-                    range: 20...220
-                )
-
-                SliderRow(
-                    title: "Fade speed",
-                    value: Binding(
-                        get: { Double(settings.fadeSpeed) },
-                        set: { settings.fadeSpeed = Float($0) }
-                    ),
-                    range: 0.4...4
-                )
-
-                SliderRow(
-                    title: "Flight speed",
-                    value: Binding(
-                        get: { Double(settings.flightSpeed) },
-                        set: { settings.flightSpeed = Float($0) }
-                    ),
-                    range: 0.35...2
-                )
-
-                SliderRow(
-                    title: "Gravity",
-                    value: Binding(
-                        get: { Double(settings.gravity) },
-                        set: { settings.gravity = Float($0) }
-                    ),
-                    range: 0.05...1.4
-                )
-
-                SliderRow(
-                    title: "Max particles on screen",
-                    value: Binding(
-                        get: { Double(settings.maxVisibleParticleInstances) },
-                        set: { settings.maxVisibleParticleInstances = Float(($0 / 500).rounded() * 500) }
-                    ),
-                    range: 6_000...60_000,
-                    fractionLength: 0
-                )
-
-                SliderRow(
-                    title: "Trail brightness",
-                    value: Binding(
-                        get: { Double(settings.trailBrightness) },
-                        set: { settings.trailBrightness = Float($0) }
-                    ),
-                    range: 1...10
-                )
-
-                SliderRow(
-                    title: "Trail length",
-                    value: Binding(
-                        get: { Double(settings.trailLength) },
-                        set: { settings.trailLength = Float($0) }
-                    ),
-                    range: 0.15...1.4
-                )
+                switch selectedEffect {
+                case .fireworks:
+                    fireworksControls
+                case .ripple:
+                    rippleControls
+                }
             }
             .padding(.horizontal, 22)
             .padding(.top, 22)
             .padding(.bottom, 28)
         }
     }
+
+    private var fireworksControls: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            SliderRow(
+                title: "Explosion radius",
+                value: Binding(
+                    get: { Double(fireworksSettings.explosionRadius) },
+                    set: { fireworksSettings.explosionRadius = Float($0) }
+                ),
+                range: 0.1...1.8
+            )
+
+            SliderRow(
+                title: "Particle size",
+                value: Binding(
+                    get: { Double(fireworksSettings.particleSize) },
+                    set: { fireworksSettings.particleSize = Float($0) }
+                ),
+                range: 0.11...1
+            )
+
+            SliderRow(
+                title: "Particle blur",
+                value: Binding(
+                    get: { Double(fireworksSettings.particleBlur) },
+                    set: { fireworksSettings.particleBlur = Float($0) }
+                ),
+                range: 0...1
+            )
+
+            SliderRow(
+                title: "Glow intensity",
+                value: Binding(
+                    get: { Double(fireworksSettings.glowIntensity) },
+                    set: { fireworksSettings.glowIntensity = Float($0) }
+                ),
+                range: 0...62.5
+            )
+
+            SliderRow(
+                title: "Glow radius",
+                value: Binding(
+                    get: { Double(fireworksSettings.glowRadius) },
+                    set: { fireworksSettings.glowRadius = Float($0) }
+                ),
+                range: 20...220
+            )
+
+            SliderRow(
+                title: "Fade speed",
+                value: Binding(
+                    get: { Double(fireworksSettings.fadeSpeed) },
+                    set: { fireworksSettings.fadeSpeed = Float($0) }
+                ),
+                range: 0.4...4
+            )
+
+            SliderRow(
+                title: "Flight speed",
+                value: Binding(
+                    get: { Double(fireworksSettings.flightSpeed) },
+                    set: { fireworksSettings.flightSpeed = Float($0) }
+                ),
+                range: 0.35...2
+            )
+
+            SliderRow(
+                title: "Gravity",
+                value: Binding(
+                    get: { Double(fireworksSettings.gravity) },
+                    set: { fireworksSettings.gravity = Float($0) }
+                ),
+                range: 0.05...1.4
+            )
+
+            SliderRow(
+                title: "Max particles on screen",
+                value: Binding(
+                    get: { Double(fireworksSettings.maxVisibleParticleInstances) },
+                    set: { fireworksSettings.maxVisibleParticleInstances = Float(($0 / 500).rounded() * 500) }
+                ),
+                range: 6_000...60_000,
+                fractionLength: 0
+            )
+
+            SliderRow(
+                title: "Trail brightness",
+                value: Binding(
+                    get: { Double(fireworksSettings.trailBrightness) },
+                    set: { fireworksSettings.trailBrightness = Float($0) }
+                ),
+                range: 1...10
+            )
+
+            SliderRow(
+                title: "Trail length",
+                value: Binding(
+                    get: { Double(fireworksSettings.trailLength) },
+                    set: { fireworksSettings.trailLength = Float($0) }
+                ),
+                range: 0.15...1.4
+            )
+        }
+    }
+
+    private var rippleControls: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            SliderRow(
+                title: "Ripple strength",
+                value: Binding(
+                    get: { Double(rippleSettings.strength) },
+                    set: { rippleSettings.strength = Float($0) }
+                ),
+                range: 0.01...0.12
+            )
+
+            SliderRow(
+                title: "Ripple radius",
+                value: Binding(
+                    get: { Double(rippleSettings.radius) },
+                    set: { rippleSettings.radius = Float($0) }
+                ),
+                range: 0.18...0.9
+            )
+
+            SliderRow(
+                title: "Ripple speed",
+                value: Binding(
+                    get: { Double(rippleSettings.speed) },
+                    set: { rippleSettings.speed = Float($0) }
+                ),
+                range: 0.6...3
+            )
+
+            SliderRow(
+                title: "Wave count",
+                value: Binding(
+                    get: { Double(rippleSettings.waveCount) },
+                    set: { rippleSettings.waveCount = Float($0.rounded()) }
+                ),
+                range: 1...8,
+                fractionLength: 0
+            )
+
+            SliderRow(
+                title: "Wave softness",
+                value: Binding(
+                    get: { Double(rippleSettings.waveSoftness) },
+                    set: { rippleSettings.waveSoftness = Float($0) }
+                ),
+                range: 0.05...1
+            )
+
+            SliderRow(
+                title: "Wave spacing",
+                value: Binding(
+                    get: { Double(rippleSettings.waveSpacing) },
+                    set: { rippleSettings.waveSpacing = Float($0) }
+                ),
+                range: 0.35...2
+            )
+
+            SliderRow(
+                title: "Fade speed",
+                value: Binding(
+                    get: { Double(rippleSettings.fadeSpeed) },
+                    set: { rippleSettings.fadeSpeed = Float($0) }
+                ),
+                range: 0.15...3
+            )
+
+            SliderRow(
+                title: "Damping",
+                value: Binding(
+                    get: { Double(rippleSettings.damping) },
+                    set: { rippleSettings.damping = Float($0) }
+                ),
+                range: 0.35...2.2
+            )
+
+            SliderRow(
+                title: "Refraction",
+                value: Binding(
+                    get: { Double(rippleSettings.refraction) },
+                    set: { rippleSettings.refraction = Float($0) }
+                ),
+                range: 0.2...1.6
+            )
+        }
+    }
+
 }
 
 private struct SliderRow: View {

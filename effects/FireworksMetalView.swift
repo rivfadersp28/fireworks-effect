@@ -31,6 +31,13 @@ struct FireworksMetalView: UIViewRepresentable {
         )
         view.addGestureRecognizer(tap)
 
+        let pan = UIPanGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Renderer.handlePan(_:))
+        )
+        pan.maximumNumberOfTouches = 1
+        view.addGestureRecognizer(pan)
+
         return view
     }
 
@@ -99,6 +106,8 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var lastFPSUpdateTime = CACurrentMediaTime()
     private var lastFrameTime = CACurrentMediaTime()
     private var lastAutomaticFireworkTime: Float = 0
+    private var lastPanFireworkTime: Float = 0
+    private var lastPanFireworkPoint: CGPoint?
     private var smoothedFPS = 60.0
     private var framesSinceFPSUpdate = 0
     private var fireworks: [Firework] = []
@@ -188,6 +197,66 @@ final class Renderer: NSObject, MTKViewDelegate {
         }
 
         let point = recognizer.location(in: view)
+        spawnFirework(at: point, in: view)
+    }
+
+    @objc func handlePan(_ recognizer: UIPanGestureRecognizer) {
+        guard let view else {
+            return
+        }
+
+        let point = recognizer.location(in: view)
+        let now = Float(CACurrentMediaTime() - startTime)
+
+        switch recognizer.state {
+        case .began:
+            lastPanFireworkPoint = point
+            lastPanFireworkTime = now
+            spawnFirework(at: point, in: view, now: now)
+
+        case .changed:
+            spawnFireworksAlongPan(to: point, in: view, now: now)
+
+        case .ended, .cancelled, .failed:
+            lastPanFireworkPoint = nil
+
+        default:
+            break
+        }
+    }
+
+    private func spawnFireworksAlongPan(to point: CGPoint, in view: UIView, now: Float) {
+        guard let previousPoint = lastPanFireworkPoint else {
+            lastPanFireworkPoint = point
+            spawnFirework(at: point, in: view, now: now)
+            return
+        }
+
+        let dx = point.x - previousPoint.x
+        let dy = point.y - previousPoint.y
+        let distance = hypot(dx, dy)
+        let minDistance: CGFloat = 26
+        let minInterval: Float = 0.045
+
+        guard distance >= minDistance || now - lastPanFireworkTime >= minInterval else {
+            return
+        }
+
+        let steps = max(1, min(Int(distance / minDistance), 5))
+        for step in 1...steps {
+            let fraction = CGFloat(step) / CGFloat(steps)
+            let interpolated = CGPoint(
+                x: previousPoint.x + dx * fraction,
+                y: previousPoint.y + dy * fraction
+            )
+            spawnFirework(at: interpolated, in: view, now: now)
+        }
+
+        lastPanFireworkPoint = point
+        lastPanFireworkTime = now
+    }
+
+    private func spawnFirework(at point: CGPoint, in view: UIView, now: Float? = nil) {
         let size = view.bounds.size
         guard size.width > 0, size.height > 0 else {
             return
@@ -197,8 +266,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             Float(point.x / size.width),
             Float(point.y / size.height)
         )
-        let now = Float(CACurrentMediaTime() - startTime)
-        spawnFirework(at: normalized, now: now)
+        spawnFirework(at: normalized, now: now ?? Float(CACurrentMediaTime() - startTime))
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
