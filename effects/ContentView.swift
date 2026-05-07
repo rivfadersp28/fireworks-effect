@@ -58,6 +58,7 @@ struct ContentView: View {
     @State private var selectedEffect = EffectKind.fireworks
     @State private var isSettingsPresented = false
     @State private var framesPerSecond = 0
+    @State private var dogTextWhiteAmount = 1.0
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -75,11 +76,19 @@ struct ContentView: View {
                 LoopingVideoView(resourceName: "bravo", framesPerSecond: $framesPerSecond)
                     .ignoresSafeArea()
             case .dog:
-                LoopingVideoView(resourceName: "dog", framesPerSecond: $framesPerSecond)
+                LoopingVideoView(
+                    resourceName: "dog",
+                    framesPerSecond: $framesPerSecond,
+                    onLuminanceUpdate: updateDogTextContrast
+                )
                     .ignoresSafeArea()
             }
 
-            RewardOverlay()
+            RewardOverlay(
+                adaptiveTextColor: selectedEffect == .dog
+                    ? Color(white: dogTextWhiteAmount)
+                    : .white
+            )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 
             HStack {
@@ -119,9 +128,23 @@ struct ContentView: View {
                 .presentationBackground(.black.opacity(0.88))
         }
     }
+
+    private func updateDogTextContrast(luminance: Double) {
+        let whiteAmount = 1.0 - smoothstep(edge0: 0.34, edge1: 0.68, x: luminance)
+        withAnimation(.easeInOut(duration: 0.22)) {
+            dogTextWhiteAmount = whiteAmount
+        }
+    }
+
+    private func smoothstep(edge0: Double, edge1: Double, x: Double) -> Double {
+        let t = min(max((x - edge0) / (edge1 - edge0), 0), 1)
+        return t * t * (3 - 2 * t)
+    }
 }
 
 private struct RewardOverlay: View {
+    let adaptiveTextColor: Color
+
     var body: some View {
         ZStack {
             VStack(spacing: 14) {
@@ -131,14 +154,14 @@ private struct RewardOverlay: View {
                         .tracking(-1.2)
                 }
                 .font(.system(size: 69, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(adaptiveTextColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
 
                 Text("Happy birthday!")
                     .font(.system(size: 20, weight: .regular))
                     .tracking(-0.63)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(adaptiveTextColor)
 
                 HStack(spacing: 10) {
                     Image("AlexeyAvatar")
